@@ -1,9 +1,11 @@
 
 import json
-import streamlit as st
-import requests
-from pypdf import PdfReader
+from pathlib import Path
 from io import BytesIO
+
+import requests
+import streamlit as st
+from pypdf import PdfReader
 
 MCP_URL = "http://127.0.0.1:8000/mcp"
 PROTOCOL_VERSION = "2025-11-25"
@@ -15,13 +17,10 @@ st.set_page_config(
 )
 
 st.title("🎵 LearnTune AI")
-st.subheader("Turn your study notes into learning songs!")
-st.write("Enter a topic or upload a PDF containing your study notes.")
-
-mode = st.radio(
-    "Choose your input",
-    ["Enter a topic", "Upload study notes (PDF)"],
-    horizontal=True
+st.subheader("Turn your study notes into learning songs")
+st.write(
+    "Enter a topic or upload a PDF. Generate educational lyrics, "
+    "then listen to an available singing sample."
 )
 
 
@@ -81,7 +80,7 @@ def generate_song(topic):
 
     session_id = init_response.headers.get("mcp-session-id")
     if not session_id:
-        raise RuntimeError("The MCP server did not return a session ID.")
+        raise RuntimeError("MCP server did not return a session ID.")
 
     mcp_request(
         {"jsonrpc": "2.0", "method": "notifications/initialized"},
@@ -107,7 +106,7 @@ def generate_song(topic):
 
     result = read_response(response)
     if not result or "result" not in result:
-        raise RuntimeError("Unexpected response from the MCP server.")
+        raise RuntimeError("Unexpected response from MCP server.")
 
     tool_result = result["result"]
     lyrics = "\n\n".join(
@@ -117,10 +116,18 @@ def generate_song(topic):
     )
 
     if tool_result.get("isError"):
-        raise RuntimeError(lyrics or "The song tool reported an error.")
+        raise RuntimeError(lyrics or "Song generation failed.")
 
     return lyrics or "No lyrics were returned."
 
+
+st.header("1. Choose your study material")
+
+mode = st.radio(
+    "Input method",
+    ["Enter a topic", "Upload study notes (PDF)"],
+    horizontal=True,
+)
 
 topic = ""
 
@@ -129,10 +136,9 @@ if mode == "Enter a topic":
         "Learning topic",
         placeholder="e.g. Photosynthesis"
     )
-
 else:
     uploaded_pdf = st.file_uploader(
-        "Upload your study notes",
+        "Choose a PDF file",
         type=["pdf"]
     )
 
@@ -150,47 +156,80 @@ else:
 
                 if not extracted_text:
                     st.warning(
-                        "No readable text found. "
-                        "Scanned PDFs need OCR, which is not included yet."
+                        "No readable text found. Scanned PDFs need OCR."
                     )
                 else:
                     st.success(
                         f"Extracted text from {len(reader.pages)} pages."
                     )
                     st.text_area(
-                        "Preview of your extracted notes",
-                        extracted_text[:3000],
-                        height=180,
-                        disabled=True
+                        "Notes preview",
+                        extracted_text[:2500],
+                        height=150,
+                        disabled=True,
                     )
                     topic = (
-                        "Create educational song lyrics based on these "
-                        "study notes. Preserve the important facts and "
-                        "terms, and make the lyrics easy to remember:\n\n"
+                        "Create accurate, memorable educational pop-song "
+                        "lyrics based on these study notes:\n\n"
                         + extracted_text[:12000]
                     )
         except Exception as error:
-            st.error(f"Could not read this PDF: {error}")
+            st.error(f"Could not read the PDF: {error}")
 
 
-if st.button("🎵 Generate Learning Song", type="primary"):
+st.header("2. Generate educational lyrics")
+
+if st.button("🎵 Generate Learning Lyrics", type="primary"):
     if not topic.strip():
-        st.warning("Please enter a topic or upload a readable PDF.")
+        st.warning("Enter a topic or upload a readable PDF first.")
     else:
-        with st.spinner("Creating your educational song..."):
+        with st.spinner("Generating your educational lyrics..."):
             try:
-                lyrics = generate_song(topic)
-                st.subheader("🎶 Your Learning Song")
-                st.markdown(lyrics)
-                st.download_button(
-                    "Download lyrics as a text file",
-                    data=lyrics,
-                    file_name="LearnTuneAI_lyrics.txt",
-                    mime="text/plain"
-                )
+                st.session_state["latest_lyrics"] = generate_song(topic)
+                st.session_state["lyrics_error"] = ""
             except Exception as error:
-                st.error(f"Song generation failed: {error}")
-                st.caption(
-                    "Check that server.py is running in the first "
-                    "Command Prompt window."
-                )
+                st.session_state["lyrics_error"] = str(error)
+
+if st.session_state.get("lyrics_error"):
+    st.error(st.session_state["lyrics_error"])
+
+lyrics = st.session_state.get("latest_lyrics")
+
+if lyrics:
+    st.subheader("🎶 Your generated lyrics")
+    st.markdown(lyrics)
+    st.download_button(
+        "Download lyrics (.txt)",
+        data=lyrics,
+        file_name="LearnTuneAI_lyrics.txt",
+        mime="text/plain",
+    )
+
+    st.header("3. Listen to a singing sample")
+    st.info(
+        "These are pre-generated sample songs. They are not automatically "
+        "created from the current topic or PDF."
+    )
+
+    project_folder = Path(__file__).resolve().parent
+    samples = [
+        ("Singing Sample 1", "output1.mp3"),
+        ("Singing Sample 2", "output2.mp3"),
+        ("Latest Singing Sample", "generated_song.mp3"),
+    ]
+
+    for title, filename in samples:
+        audio_path = project_folder / filename
+        if audio_path.is_file():
+            st.subheader(title)
+            audio_bytes = audio_path.read_bytes()
+            st.audio(audio_bytes, format="audio/mpeg")
+            st.download_button(
+                f"Download {title}",
+                data=audio_bytes,
+                file_name=filename,
+                mime="audio/mpeg",
+                key=f"download_{filename}",
+            )
+        else:
+            st.caption(f"Sample not found: {filename}")
