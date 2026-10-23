@@ -1,0 +1,5 @@
+streamlit
+requests
+python-dotenv
+pypdf
+mcp[cli]==2.3.0
